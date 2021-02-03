@@ -8,10 +8,7 @@ import pdb
 
 def split(array, nrows, ncols):
     """Split a matrix into sub-matrices."""
-
-    r, h = array.shape
-    return (array.reshape(h//nrows, nrows, -1, ncols)
-                 .swapaxes(1, 2))
+    return array.reshape(array.shape[1]//nrows, nrows, -1, ncols).swapaxes(1, 2)
 
 class AdjacencyKernel(nn.Module):
 	@nn.compact
@@ -57,10 +54,38 @@ class AdjacencyOp(nn.Module):
 		mat = self.agg(blocks).squeeze(axis=2)
 		return mat, field
 
-# Next: try silly loss comparing adjacency op w/ zero-padding with some target?
-
 class Acquisition(nn.Module):
+	'''
+	Surrogate cost function taking AdjacencyOp parameters to a real value. 
+	Architecture:
+	1. Dense layers
+	2. Bayesian linear regressor (BLR) layer
+		- Trained initially as a dense (linear regression) layer
+		- Learned basis functions parametrize BLR
+	3. Expected improvement (or perhaps UCB)
+		- use MCMC EI to calculated expected improvement
+	'''
 	pass
+
+def train(acq, observations):
+	''' 
+	Train the acquisition function.
+	'''
+	pass
+
+def maximize(acq, params):
+	'''
+	Maximize trained acquisition function.
+	Incorporates an additional cost component for L1 norm of scale parameter (preferring smaller graphs).
+	'''
+	pass
+
+def evaluate(op, params):
+	'''
+	Evaluate black-box function on graph given parameters.
+	'''
+	mat, field = AdjacencyOp().apply({'params': params})
+	# Convert to graph representation & evaluate J
 
 if __name__ == '__main__':
 	import matplotlib.pyplot as plt
