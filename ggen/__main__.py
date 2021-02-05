@@ -1,6 +1,7 @@
 ''' Basic tests ''' 
 
 import numpy as np
+import scipy as sp
 import jax
 import jax.nn.initializers as initializers
 import jax.numpy as jnp
@@ -20,6 +21,11 @@ def normalize(self, X):
 
 def unnormalize(self, X_bar, X_mu, X_std):
 	return X_bar*X_std + X_mu
+
+def mse_loss(X1, X2):
+	def squared_error(x1, x2):
+		return (x1-x2) @ (x1-x2) / 2
+	return jnp.mean(jax.vmap(squared_error)(X1, X2), axis=0)
 
 class AdjacencyKernel(nn.Module):
 	@nn.compact
@@ -90,7 +96,6 @@ class Acquisition(nn.Module):
 		self.basis = lambda x: self.fc2(jnp.tanh(self.fc1(x)))
 		self.final = nn.Dense(features=1)
 
-	@nn.compact
 	def __call__(self, x):
 		''' Returns the predicted objective ''' 
 		x = self.basis(x)
@@ -132,15 +137,32 @@ class Acquisition(nn.Module):
 		return mu + 0.01*jnp.sqrt(var)
 
 
-def train(acq, X, Y, lr):
+@jax.jit
+def train(optim, acq, X, Y, n_epochs):
 	''' 
 	Train the acquisition function.
 	'''
 	X_bar, X_mu, X_std = normalize(X)
 	Y_bar, Y_mu, Y_std = normalize(Y)
-	# TODO
+	def loss_fn(params):
+		Y_pred = acq.apply({'params': params}, X_bar)
+		return mse_loss(Y_pred, Y_bar)
+	for _ in range(n_epochs):
+		l, grad = jax.value_and_grad(loss_fn, has_aux=True)(optim.target)
+		optim = optim.apply_gradient(grad)
+	def hyper_loss_fn(params):
+		mll = acq.apply({'params': {'alpha': theta[0]}, 'beta': theta[1]}, X_bar, Y_bar, method=acq.mll)
+		return -mll
+	result = jsp.optimize.minimize(
+		hyper_loss_fn, 
+		jnp.array([params['alpha'], params['beta']]), 
+		method='BFGS',
+	)
+	optim.target['alpha'], optim.target['beta'] = result.x
+	return optim
 
-def maximize(acq, theta):
+@jax.jit
+def maximize(acq, X_bar):
 	'''
 	Maximize trained acquisition function.
 	Incorporates an additional cost component for L1 norm of scale parameter (preferring smaller graphs).
@@ -160,7 +182,7 @@ if __name__ == '__main__':
 	key = jax.random.PRNGKey(15)
 	theta = AdjacencyOp().init(key)['params']
 	key, subkey = jax.random.split(key)
-	# phi = Acquisition().init(subkey)['params']
+	phi = Acquisition().init(subkey)['params']
 
 	mat, field = AdjacencyOp().apply({'params': theta})
 	fig, axs = plt.subplots(1, 2)
